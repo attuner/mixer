@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SurroundLab 5.1 - Audio Channel Matrix & Splitter</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            studio: {
+              950: '#07090e',
+              900: '#0b0f19',
+              850: '#111726',
+              800: '#172033',
+              700: '#222f4c',
+              600: '#334155',
+            },
+            accent: {
+              cyan: '#06b6d4',
+              emerald: '#10b981',
+              amber: '#f59e0b',
+              crimson: '#f43f5e',
+              purple: '#8b5cf6',
+              blue: '#3b82f6',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom vertical and horizontal sliders for audio mixing console */
+    input[type=range].fader-v {
+      -webkit-appearance: slider-vertical;
+      writing-mode: bt-lr;
+      width: 12px;
+      height: 160px;
+      background: transparent;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range].timeline-scrubber {
+      -webkit-appearance: none;
+      appearance: none;
+      background: #1e293b;
+      height: 6px;
+      border-radius: 4px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range].timeline-scrubber::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+    input[type=range].timeline-scrubber::-webkit-slider-thumb:hover {
+      transform: scale(1.3);
+    }
+    /* Glow animations */
+    .glow-cyan {
+      box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+    }
+    .speaker-active {
+      filter: drop-shadow(0 0 12px currentColor);
+      transition: all 0.1s ease-out;
+    }
+    /* Custom scrollbar for matrix table */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #222f4c;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body class="bg-studio-950 text-slate-100 font-sans min-h-screen flex flex-col selection:bg-cyan-500 selection:text-black">
+
+  <header class="border-b border-studio-800 bg-studio-900/80 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 via-indigo-600 to-accent-purple flex items-center justify-center shadow-lg shadow-cyan-500/20">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+        </svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-lg font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-cyan-400">
+            SurroundLab 5.1
+          </h1>
+          <span class="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800 font-bold">DSP Matrix</span>
+        </div>
+        <p class="text-xs text-slate-400">Multichannel Audio De-mux & Active 5.1 Surround Upmixer</p>
+      </div>
+    </div>
+
+    <!-- Live System Badge & Mode Indicator -->
+    <div class="flex items-center gap-4 text-xs font-mono">
+      <div class="bg-studio-850 border border-studio-800 px-3 py-1.5 rounded-lg flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" id="engineStatusDot"></span>
+        <span class="text-slate-400">Engine:</span>
+        <span class="text-slate-200 font-semibold" id="engineModeText">WebAudio 48kHz</span>
+      </div>
+      <div class="bg-studio-850 border border-studio-800 px-3 py-1.5 rounded-lg hidden sm:flex items-center gap-2">
+        <span class="text-slate-400">Source:</span>
+        <span class="text-cyan-400 font-semibold" id="sourceTypeText">No Audio Loaded</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 space-y-6">
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      
+      <!-- Upload Drop Zone -->
+      <div class="lg:col-span-2 bg-studio-900 border border-studio-800 rounded-2xl p-5 shadow-xl relative overflow-hidden flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+              Input Audio File
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Upload multichannel (5.1/6ch) or stereo/mono files for active DSP 5.1 upmixing</p>
+          </div>
+          <button id="btnDemoTrack" class="text-xs font-medium px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 text-cyan-300 border border-cyan-800/60 transition flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+            Load 5.1 Demo Track
+          </button>
+        </div>
+
+        <!-- Drop area -->
+        <div id="dropZone" class="border-2 border-dashed border-studio-700 hover:border-cyan-500 hover:bg-cyan-950/10 transition-all rounded-xl p-6 text-center cursor-pointer flex flex-col items-center justify-center gap-2 group">
+          <input type="file" id="audioFileInput" class="hidden" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" />
+          <div class="w-12 h-12 rounded-full bg-studio-850 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 group-hover:scale-110 transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          </div>
+          <div class="text-sm font-medium text-slate-200">
+            Click to choose an audio file or <span class="text-cyan-400">drag and drop here</span>
+          </div>
+          <div class="text-xs text-slate-400">
+            Supports MP3, WAV, FLAC, OGG, AAC &bull; Auto-detects 5.1 channel layout or applies stereo matrix upmixing
+          </div>
+        </div>
+
+        <!-- File Meta summary bar -->
+        <div id="fileInfoBar" class="mt-4 pt-3 border-t border-studio-800/80 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono text-slate-400">
+          <div>File: <span id="metaFileName" class="text-slate-200">None</span></div>
+          <div>Channels: <span id="metaChannels" class="text-cyan-400 font-semibold">-</span></div>
+          <div>Sample Rate: <span id="metaSampleRate" class="text-slate-200">-</span></div>
+          <div>Duration: <span id="metaDuration" class="text-slate-200">00:00</span></div>
+        </div>
+      </div>
+
+      <div class="bg-studio-900 border border-studio-800 rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <svg class="w-4 h-4 text-accent-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+            5.1 Surround Spatial Map
+          </h2>
+          <span class="text-[10px] text-slate-400 font-mono">ITU-R BS.775</span>
+        </div>
+
+        <!-- Room Canvas / SVG -->
+        <div class="relative w-full aspect-[4/3] bg-studio-950 rounded-xl border border-studio-800 flex items-center justify-center p-3 overflow-hidden">
+          <div class="absolute inset-0 opacity-10 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:16px_16px]"></div>
+          
+          <!-- Listener Center Icon -->
+          <div class="absolute z-10 w-9 h-9 rounded-full bg-studio-800 border-2 border-slate-600 flex items-center justify-center text-[10px] font-bold text-slate-300 shadow">
+            HEAD
+          </div>
+
+          <!-- Center Speaker (Top Center) -->
+          <div id="spk-c" class="speaker-node absolute top-2.5 flex flex-col items-center group cursor-pointer" onclick="toggleSolo('c')">
+            <div class="w-8 h-8 rounded-lg bg-studio-850 border border-slate-700 flex items-center justify-center text-xs font-bold text-yellow-400 group-hover:border-yellow-400 transition">
+              C
+            </div>
+            <span class="text-[9px] font-mono mt-0.5 text-slate-400">Center</span>
+          </div>
+
+          <!-- Left Front (Top Left) -->
+          <div id="spk-l" class="speaker-node absolute top-5 left-5 flex flex-col items-center group cursor-pointer" onclick="toggleSolo('l')">
+            <div class="w-8 h-8 rounded-lg bg-studio-850 border border-slate-700 flex items-center justify-center text-xs font-bold text-cyan-400 group-hover:border-cyan-400 transition">
+              L
+            </div>
+            <span class="text-[9px] font-mono mt-0.5 text-slate-400">Front L</span>
+          </div>
+
+          <!-- Right Front (Top Right) -->
+          <div id="spk-r" class="speaker-node absolute top-5 right-5 flex flex-col items-center group cursor-pointer" onclick="toggleSolo('r')">
+            <div class="w-8 h-8 rounded-lg bg-studio-850 border border-slate-700 flex items-center justify-center text-xs font-bold text-cyan-400 group-hover:border-cyan-400 transition">
+              R
+            </div>
+            <span class="text-[9px] font-mono mt-0.5 text-slate-400">Front R</span>
+          </div>
+
+          <!-- Subwoofer LFE (Center Right) -->
+          <div id="spk-lfe" class="speaker-node absolute top-1/2 right-7 -translate-y-1/2 flex flex-col items-center group cursor-pointer" onclick="toggleSolo('lfe')">
+            <div class="w-9 h-8 rounded-lg bg-studio-850 border border-slate-700 flex items-center justify-center text-xs font-bold text-rose-400 group-hover:border-rose-400 transition">
+              SUB
+            </div>
+            <span class="text-[9px] font-mono mt-0.5 text-slate-400">LFE</span>
+          </div>
+
+          <!-- Surround Left (Bottom Left) -->
+          <div id="spk-sl" class="speaker-node absolute bottom-4 left-6 flex flex-col items-center group cursor-pointer" onclick="toggleSolo('sl')">
+            <div class="w-8 h-8 rounded-lg bg-studio-850 border border-slate-700 flex items-center justify-center text-xs font-bold text-emerald-400 group-hover:border-emerald-400 transition">
+              SL
+            </div>
+            <span class="text-[9px] font-mono mt-0.5 text-slate-400">Rear L</span>
+          </div>
+
+          <!-- Surround Right (Bottom Right) -->
+          <div id="spk-sr" class="speaker-node absolute bottom-4 right-6 flex flex-col items-center group cursor-pointer" onclick="toggleSolo('sr')">
+            <div class="w-8 h-8 rounded-lg bg-studio-850 border border-slate-700 flex items-center justify-center text-xs font-bold text-emerald-400 group-hover:border-emerald-400 transition">
+              SR
+            </div>
+            <span class="text-[9px] font-mono mt-0.5 text-slate-400">Rear R</span>
+          </div>
+        </div>
+        
+        <p class="text-[11px] text-slate-400 text-center mt-2">
+          Click any speaker icon above to instantly <span class="text-cyan-400 font-semibold">Solo</span> that channel.
+        </p>
+      </div>
+
+    </div>
+
+    <div class="bg-studio-900 border border-studio-800 rounded-2xl p-5 shadow-xl space-y-4">
+      
+      <!-- Transport controls and time display -->
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        
+        <!-- Action Buttons -->
+        <div class="flex items-center gap-3">
+          <button id="btnPlayPause" class="h-11 px-6 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95 transition">
+            <svg id="iconPlay" class="w-5 h-5 fill-current" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <svg id="iconPause" class="w-5 h-5 fill-current hidden" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            <span id="playBtnText">Play</span>
+          </button>
+          
+          <button id="btnStop" class="h-11 px-4 rounded-xl bg-studio-800 hover:bg-studio-700 border border-studio-700 text-slate-300 font-medium flex items-center gap-2 transition active:scale-95">
+            <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14"/></svg>
+            Stop
+          </button>
+
+          <button id="btnLoop" class="h-11 px-3.5 rounded-xl bg-studio-800 hover:bg-studio-700 border border-studio-700 text-slate-400 hover:text-slate-100 flex items-center gap-1.5 transition" title="Toggle Loop">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span class="text-xs font-mono" id="loopLabel">Loop: Off</span>
+          </button>
+        </div>
+
+        <!-- Master volume & Output info -->
+        <div class="flex items-center gap-4 bg-studio-950 px-4 py-2 rounded-xl border border-studio-800">
+          <div class="flex items-center gap-2">
+            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+            <span class="text-xs text-slate-400 uppercase font-mono">Master</span>
+            <input type="range" id="masterVolume" min="0" max="1.5" step="0.01" value="1" class="w-24 accent-cyan-400 cursor-pointer">
+            <span id="masterVolText" class="text-xs font-mono text-cyan-400 w-10 text-right">0 dB</span>
+          </div>
+          <!-- Master mini VU meter -->
+          <div class="w-16 h-3 bg-studio-850 rounded-sm overflow-hidden border border-studio-700 flex p-0.5">
+            <div id="masterMeterBar" class="h-full bg-gradient-to-r from-emerald-500 via-yellow-400 to-rose-500 rounded-xs transition-all duration-75" style="width: 0%;"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Scrubber Timeline & Waveform progress -->
+      <div class="space-y-1">
+        <div class="flex justify-between text-xs font-mono text-slate-400">
+          <span id="timeCurrent">00:00</span>
+          <span id="timeRemaining">-00:00</span>
+        </div>
+        <div class="relative flex items-center">
+          <input type="range" id="scrubber" min="0" max="100" value="0" step="0.1" class="w-full timeline-scrubber" disabled>
+        </div>
+      </div>
+
+      <!-- Preset routing combination buttons -->
+      <div class="pt-3 border-t border-studio-800">
+        <div class="text-xs font-semibold text-slate-400 mb-2 uppercase tracking-wider flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          Channel Listening Presets & Matrix Modes:
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="applyPreset('all')" class="px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 hover:border-cyan-500 border border-studio-700 text-xs font-medium text-slate-200 transition">
+            5.1 Full Surround (All)
+          </button>
+          <button onclick="applyPreset('stereo')" class="px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 hover:border-cyan-500 border border-studio-700 text-xs font-medium text-slate-200 transition">
+            Stereo Front (L + R)
+          </button>
+          <button onclick="applyPreset('center')" class="px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 hover:border-cyan-500 border border-studio-700 text-xs font-medium text-amber-300 transition">
+            Dialogue / Vocal Focus (Center)
+          </button>
+          <button onclick="applyPreset('sub')" class="px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 hover:border-cyan-500 border border-studio-700 text-xs font-medium text-rose-300 transition">
+            Subwoofer Bass Focus (LFE)
+          </button>
+          <button onclick="applyPreset('surround')" class="px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 hover:border-cyan-500 border border-studio-700 text-xs font-medium text-emerald-300 transition">
+            Ambiance / FX (Surround L + R)
+          </button>
+          <button onclick="applyPreset('front')" class="px-3 py-1.5 rounded-lg bg-studio-800 hover:bg-studio-700 hover:border-cyan-500 border border-studio-700 text-xs font-medium text-slate-200 transition">
+            Front Stage (L + C + R)
+          </button>
+          <button onclick="applyPreset('mute_all')" class="px-3 py-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/80 text-xs font-medium text-rose-300 transition ml-auto">
+            Mute All
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="bg-studio-900 border border-studio-800 rounded-2xl p-5 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+            <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+            5.1 Discrete Channel Strips
+          </h2>
+          <p class="text-xs text-slate-400">Individual gain faders, real-time LED peak visualizers, solo / mute toggles, and frequency meters</p>
+        </div>
+        <button onclick="resetMixer()" class="text-xs text-slate-400 hover:text-slate-100 bg-studio-800 hover:bg-studio-700 px-3 py-1 rounded-lg border border-studio-700 transition">
+          Reset Gains
+        </button>
+      </div>
+
+      <!-- Channels grid (6 strips) -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+        
+        <!-- Template Channel: Left Front (L) -->
+        <div id="channel-strip-l" class="channel-card bg-studio-950 border border-studio-800 hover:border-studio-700 rounded-xl p-3.5 flex flex-col items-center transition relative">
+          <div class="w-full flex justify-between items-center mb-2">
+            <span class="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">CH 1: L</span>
+            <span class="text-[10px] font-mono text-slate-400">Front L</span>
+          </div>
+
+          <!-- Channel canvas spectrum/meter -->
+          <canvas id="meter-l" width="48" height="150" class="w-12 h-36 bg-studio-900 rounded border border-studio-800 my-1"></canvas>
+          
+          <div class="w-full flex items-center justify-center gap-3 my-2">
+            <!-- Solo / Mute Buttons -->
+            <button onclick="toggleSolo('l')" id="btn-solo-l" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-amber-600 text-slate-400 hover:text-white border border-studio-700 transition">S</button>
+            <button onclick="toggleMute('l')" id="btn-mute-l" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-rose-600 text-slate-400 hover:text-white border border-studio-700 transition">M</button>
+          </div>
+
+          <!-- Volume Fader -->
+          <div class="flex flex-col items-center w-full mt-1">
+            <input type="range" id="fader-l" min="0" max="1.5" step="0.01" value="1" oninput="handleFaderChange('l', this.value)" class="w-full accent-cyan-400 cursor-pointer">
+            <div class="flex justify-between w-full text-[11px] font-mono text-slate-400 mt-1">
+              <span>Gain</span>
+              <span id="fader-db-l" class="text-cyan-400 font-semibold">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Front (R) -->
+        <div id="channel-strip-r" class="channel-card bg-studio-950 border border-studio-800 hover:border-studio-700 rounded-xl p-3.5 flex flex-col items-center transition relative">
+          <div class="w-full flex justify-between items-center mb-2">
+            <span class="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">CH 2: R</span>
+            <span class="text-[10px] font-mono text-slate-400">Front R</span>
+          </div>
+
+          <canvas id="meter-r" width="48" height="150" class="w-12 h-36 bg-studio-900 rounded border border-studio-800 my-1"></canvas>
+          
+          <div class="w-full flex items-center justify-center gap-3 my-2">
+            <button onclick="toggleSolo('r')" id="btn-solo-r" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-amber-600 text-slate-400 hover:text-white border border-studio-700 transition">S</button>
+            <button onclick="toggleMute('r')" id="btn-mute-r" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-rose-600 text-slate-400 hover:text-white border border-studio-700 transition">M</button>
+          </div>
+
+          <div class="flex flex-col items-center w-full mt-1">
+            <input type="range" id="fader-r" min="0" max="1.5" step="0.01" value="1" oninput="handleFaderChange('r', this.value)" class="w-full accent-cyan-400 cursor-pointer">
+            <div class="flex justify-between w-full text-[11px] font-mono text-slate-400 mt-1">
+              <span>Gain</span>
+              <span id="fader-db-r" class="text-cyan-400 font-semibold">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center (C) -->
+        <div id="channel-strip-c" class="channel-card bg-studio-950 border border-studio-800 hover:border-studio-700 rounded-xl p-3.5 flex flex-col items-center transition relative">
+          <div class="w-full flex justify-between items-center mb-2">
+            <span class="text-xs font-mono font-bold text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded border border-amber-800/50">CH 3: C</span>
+            <span class="text-[10px] font-mono text-slate-400">Vocal/Dia</span>
+          </div>
+
+          <canvas id="meter-c" width="48" height="150" class="w-12 h-36 bg-studio-900 rounded border border-studio-800 my-1"></canvas>
+          
+          <div class="w-full flex items-center justify-center gap-3 my-2">
+            <button onclick="toggleSolo('c')" id="btn-solo-c" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-amber-600 text-slate-400 hover:text-white border border-studio-700 transition">S</button>
+            <button onclick="toggleMute('c')" id="btn-mute-c" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-rose-600 text-slate-400 hover:text-white border border-studio-700 transition">M</button>
+          </div>
+
+          <div class="flex flex-col items-center w-full mt-1">
+            <input type="range" id="fader-c" min="0" max="1.5" step="0.01" value="1" oninput="handleFaderChange('c', this.value)" class="w-full accent-amber-400 cursor-pointer">
+            <div class="flex justify-between w-full text-[11px] font-mono text-slate-400 mt-1">
+              <span>Gain</span>
+              <span id="fader-db-c" class="text-amber-400 font-semibold">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subwoofer (LFE) -->
+        <div id="channel-strip-lfe" class="channel-card bg-studio-950 border border-studio-800 hover:border-studio-700 rounded-xl p-3.5 flex flex-col items-center transition relative">
+          <div class="w-full flex justify-between items-center mb-2">
+            <span class="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 px-2 py-0.5 rounded border border-rose-800/50">CH 4: LFE</span>
+            <span class="text-[10px] font-mono text-slate-400">&lt;120Hz</span>
+          </div>
+
+          <canvas id="meter-lfe" width="48" height="150" class="w-12 h-36 bg-studio-900 rounded border border-studio-800 my-1"></canvas>
+          
+          <div class="w-full flex items-center justify-center gap-3 my-2">
+            <button onclick="toggleSolo('lfe')" id="btn-solo-lfe" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-amber-600 text-slate-400 hover:text-white border border-studio-700 transition">S</button>
+            <button onclick="toggleMute('lfe')" id="btn-mute-lfe" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-rose-600 text-slate-400 hover:text-white border border-studio-700 transition">M</button>
+          </div>
+
+          <div class="flex flex-col items-center w-full mt-1">
+            <input type="range" id="fader-lfe" min="0" max="1.5" step="0.01" value="1" oninput="handleFaderChange('lfe', this.value)" class="w-full accent-rose-400 cursor-pointer">
+            <div class="flex justify-between w-full text-[11px] font-mono text-slate-400 mt-1">
+              <span>Gain</span>
+              <span id="fader-db-lfe" class="text-rose-400 font-semibold">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Surround Left (SL) -->
+        <div id="channel-strip-sl" class="channel-card bg-studio-950 border border-studio-800 hover:border-studio-700 rounded-xl p-3.5 flex flex-col items-center transition relative">
+          <div class="w-full flex justify-between items-center mb-2">
+            <span class="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">CH 5: SL</span>
+            <span class="text-[10px] font-mono text-slate-400">Rear L</span>
+          </div>
+
+          <canvas id="meter-sl" width="48" height="150" class="w-12 h-36 bg-studio-900 rounded border border-studio-800 my-1"></canvas>
+          
+          <div class="w-full flex items-center justify-center gap-3 my-2">
+            <button onclick="toggleSolo('sl')" id="btn-solo-sl" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-amber-600 text-slate-400 hover:text-white border border-studio-700 transition">S</button>
+            <button onclick="toggleMute('sl')" id="btn-mute-sl" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-rose-600 text-slate-400 hover:text-white border border-studio-700 transition">M</button>
+          </div>
+
+          <div class="flex flex-col items-center w-full mt-1">
+            <input type="range" id="fader-sl" min="0" max="1.5" step="0.01" value="1" oninput="handleFaderChange('sl', this.value)" class="w-full accent-emerald-400 cursor-pointer">
+            <div class="flex justify-between w-full text-[11px] font-mono text-slate-400 mt-1">
+              <span>Gain</span>
+              <span id="fader-db-sl" class="text-emerald-400 font-semibold">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Surround Right (SR) -->
+        <div id="channel-strip-sr" class="channel-card bg-studio-950 border border-studio-800 hover:border-studio-700 rounded-xl p-3.5 flex flex-col items-center transition relative">
+          <div class="w-full flex justify-between items-center mb-2">
+            <span class="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/50">CH 6: SR</span>
+            <span class="text-[10px] font-mono text-slate-400">Rear R</span>
+          </div>
+
+          <canvas id="meter-sr" width="48" height="150" class="w-12 h-36 bg-studio-900 rounded border border-studio-800 my-1"></canvas>
+          
+          <div class="w-full flex items-center justify-center gap-3 my-2">
+            <button onclick="toggleSolo('sr')" id="btn-solo-sr" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-amber-600 text-slate-400 hover:text-white border border-studio-700 transition">S</button>
+            <button onclick="toggleMute('sr')" id="btn-mute-sr" class="px-2.5 py-1 text-xs font-mono font-bold rounded bg-studio-850 hover:bg-rose-600 text-slate-400 hover:text-white border border-studio-700 transition">M</button>
+          </div>
+
+          <div class="flex flex-col items-center w-full mt-1">
+            <input type="range" id="fader-sr" min="0" max="1.5" step="0.01" value="1" oninput="handleFaderChange('sr', this.value)" class="w-full accent-emerald-400 cursor-pointer">
+            <div class="flex justify-between w-full text-[11px] font-mono text-slate-400 mt-1">
+              <span>Gain</span>
+              <span id="fader-db-sr" class="text-emerald-400 font-semibold">0 dB</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="bg-studio-900/60 border border-studio-800/80 rounded-2xl p-5 text-xs text-slate-400 space-y-2">
+      <h3 class="font-semibold text-slate-300 text-sm flex items-center gap-1.5">
+        <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        How SurroundLab 5.1 Splits & Processes Channels:
+      </h3>
+      <p>
+        &bull; <strong>Multichannel 5.1/6-ch audio:</strong> When a native multichannel file is uploaded, SurroundLab bypasses synthesis and feeds discrete channels into the mixer via <code class="text-cyan-300">ChannelSplitterNode(6)</code>: CH0: L, CH1: R, CH2: Center, CH3: LFE/Sub, CH4: Rear Left, CH5: Rear Right.
+      </p>
+      <p>
+        &bull; <strong>Stereo / Mono active DSP upmixing:</strong> For standard stereo files, high-fidelity matrix decoding is applied: 
+        <strong>Center (C)</strong> extracts in-phase information <code class="text-slate-300">(L + R) * 0.707</code> with speech bandpass filtering;
+        <strong>Subwoofer (LFE)</strong> isolates low-end bass below 120Hz with a Butterworth low-pass filter;
+        <strong>Surround Left/Right (SL/SR)</strong> computes the stereo out-of-phase difference <code class="text-slate-300">(L - R)</code> and <code class="text-slate-300">(R - L)</code> with 18ms Haas psychoacoustic delay and 7kHz atmospheric roll-off.
+      </p>
+    </div>
+
+  </main>
+
+  <!-- Notification Banner / Toast Container -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none bg-studio-800 border border-cyan-500/50 text-slate-100 text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2">
+    <span id="toastMsg">Ready</span>
+  </div>
+
+  <script>
+    // System & Audio Context State
+    let audioCtx = null;
+    let audioBuffer = null;
+    let sourceNode = null;
+    let isPlaying = false;
+    let startTime = 0;
+    let pauseOffset = 0;
+    let loopEnabled = false;
+    let animFrameId = null;
+
+    // Speaker Node Keys
+    const CHANNELS = ['l', 'r', 'c', 'lfe', 'sl', 'sr'];
+
+    // Channel state: gain, muted, soloed, nodes
+    const channelState = {
+      l:   { name: 'Front Left',      gainVal: 1.0, isMute: false, isSolo: false, node: null, analyser: null, panner: null },
+      r:   { name: 'Front Right',     gainVal: 1.0, isMute: false, isSolo: false, node: null, analyser: null, panner: null },
+      c:   { name: 'Center',          gainVal: 1.0, isMute: false, isSolo: false, node: null, analyser: null, panner: null },
+      lfe: { name: 'Subwoofer (LFE)', gainVal: 1.0, isMute: false, isSolo: false, node: null, analyser: null, panner: null },
+      sl:  { name: 'Surround Left',   gainVal: 1.0, isMute: false, isSolo: false, node: null, analyser: null, panner: null },
+      sr:  { name: 'Surround Right',  gainVal: 1.0, isMute: false, isSolo: false, node: null, analyser: null, panner: null },
+    };
+
+    // Master bus
+    let masterGainNode = null;
+    let masterAnalyser = null;
+
+    // Display elements
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const playBtnText = document.getElementById('playBtnText');
+    const iconPlay = document.getElementById('iconPlay');
+    const iconPause = document.getElementById('iconPause');
+    const btnStop = document.getElementById('btnStop');
+    const btnLoop = document.getElementById('btnLoop');
+    const loopLabel = document.getElementById('loopLabel');
+    const scrubber = document.getElementById('scrubber');
+    const timeCurrent = document.getElementById('timeCurrent');
+    const timeRemaining = document.getElementById('timeRemaining');
+    const masterVolume = document.getElementById('masterVolume');
+    const masterVolText = document.getElementById('masterVolText');
+    const masterMeterBar = document.getElementById('masterMeterBar');
+    const dropZone = document.getElementById('dropZone');
+    const audioFileInput = document.getElementById('audioFileInput');
+    const btnDemoTrack = document.getElementById('btnDemoTrack');
+    const sourceTypeText = document.getElementById('sourceTypeText');
+
+    function initAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+        
+        masterGainNode = audioCtx.createGain();
+        masterGainNode.gain.value = parseFloat(masterVolume.value);
+
+        masterAnalyser = audioCtx.createAnalyser();
+        masterAnalyser.fftSize = 256;
+        masterAnalyser.smoothingTimeConstant = 0.8;
+
+        masterGainNode.connect(masterAnalyser);
+        masterAnalyser.connect(audioCtx.destination);
+
+        // Setup individual channel audio nodes
+        CHANNELS.forEach(ch => {
+          const gainNode = audioCtx.createGain();
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 128;
+          analyser.smoothingTimeConstant = 0.75;
+
+          // Stereo panner so soloed/unmuted channels project correctly to user's headphones or speakers
+          let panVal = 0;
+          if (ch === 'l' || ch === 'sl') panVal = -0.85;
+          if (ch === 'r' || ch === 'sr') panVal = 0.85;
+          
+          let panner = null;
+          if (audioCtx.createStereoPanner) {
+            panner = audioCtx.createStereoPanner();
+            panner.pan.value = panVal;
+            gainNode.connect(analyser);
+            analyser.connect(panner);
+            panner.connect(masterGainNode);
+          } else {
+            gainNode.connect(analyser);
+            analyser.connect(masterGainNode);
+          }
+
+          channelState[ch].node = gainNode;
+          channelState[ch].analyser = analyser;
+          channelState[ch].panner = panner;
+        });
+
+        document.getElementById('engineModeText').textContent = `WebAudio ${audioCtx.sampleRate / 1000}kHz`;
+      }
+
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function setupAudioGraph() {
+      if (!audioBuffer || !audioCtx) return;
+
+      // Disconnect prior source if active
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch (e) {}
+      }
+
+      sourceNode = audioCtx.createBufferSource();
+      sourceNode.buffer = audioBuffer;
+      sourceNode.loop = loopEnabled;
+
+      sourceNode.onended = () => {
+        if (!loopEnabled && isPlaying && (audioCtx.currentTime - startTime >= audioBuffer.duration - 0.1)) {
+          stopAudio();
+        }
+      };
+
+      const numChannels = audioBuffer.numberOfChannels;
+
+      if (numChannels >= 6) {
+        // DISCRETE 5.1 FILE: CH0=L, CH1=R, CH2=C, CH3=LFE, CH4=SL, CH5=SR
+        const splitter = audioCtx.createChannelSplitter(numChannels);
+        sourceNode.connect(splitter);
+
+        splitter.connect(channelState.l.node, 0);
+        splitter.connect(channelState.r.node, 1);
+        splitter.connect(channelState.c.node, 2);
+        splitter.connect(channelState.lfe.node, 3);
+        splitter.connect(channelState.sl.node, 4);
+        splitter.connect(channelState.sr.node, 5);
+
+        sourceTypeText.textContent = `Discrete 5.1 (${numChannels}ch)`;
+      } else {
+        // STEREO / MONO ACTIVE MATRIX UPMIXER
+        // Split stereo into Left and Right components
+        const splitter = audioCtx.createChannelSplitter(2);
+        sourceNode.connect(splitter);
+
+        // 1 & 2: Front Left and Front Right
+        splitter.connect(channelState.l.node, 0);
+        splitter.connect(channelState.r.node, numChannels > 1 ? 1 : 0);
+
+        // 3: Center Channel DSP -> (L + R) * 0.707 with vocal clarity bandpass (150Hz - 4500Hz)
+        const centerSum = audioCtx.createGain();
+        centerSum.gain.value = 0.707;
+        splitter.connect(centerSum, 0);
+        if (numChannels > 1) splitter.connect(centerSum, 1);
+
+        const centerFilter = audioCtx.createBiquadFilter();
+        centerFilter.type = 'bandpass';
+        centerFilter.frequency.value = 1400;
+        centerFilter.Q.value = 0.6;
+        centerSum.connect(centerFilter);
+        centerFilter.connect(channelState.c.node);
+
+        // 4: Subwoofer (LFE) DSP -> Low Pass filter at 120Hz for pure deep bass
+        const lfeSum = audioCtx.createGain();
+        lfeSum.gain.value = 0.9;
+        splitter.connect(lfeSum, 0);
+        if (numChannels > 1) splitter.connect(lfeSum, 1);
+
+        const lfeFilter = audioCtx.createBiquadFilter();
+        lfeFilter.type = 'lowpass';
+        lfeFilter.frequency.value = 110;
+        lfeFilter.Q.value = 1.2;
+        lfeSum.connect(lfeFilter);
+        lfeFilter.connect(channelState.lfe.node);
+
+        // 5 & 6: Surround Left & Right (Haas effect + Phase Difference (L - R) & (R - L))
+        if (numChannels > 1) {
+          // Surround Left = L - R with 18ms delay and 7kHz damping
+          const diffGainL = audioCtx.createGain();
+          diffGainL.gain.value = 0.8;
+          const invR = audioCtx.createGain();
+          invR.gain.value = -0.8;
+
+          splitter.connect(diffGainL, 0);
+          splitter.connect(invR, 1);
+
+          const slDelay = audioCtx.createDelay();
+          slDelay.delayTime.value = 0.018; // 18ms ambient delay
+          const slFilter = audioCtx.createBiquadFilter();
+          slFilter.type = 'lowpass';
+          slFilter.frequency.value = 6500;
+
+          diffGainL.connect(slDelay);
+          invR.connect(slDelay);
+          slDelay.connect(slFilter);
+          slFilter.connect(channelState.sl.node);
+
+          // Surround Right = R - L with 22ms delay and 7kHz damping
+          const diffGainR = audioCtx.createGain();
+          diffGainR.gain.value = 0.8;
+          const invL = audioCtx.createGain();
+          invL.gain.value = -0.8;
+
+          splitter.connect(diffGainR, 1);
+          splitter.connect(invL, 0);
+
+          const srDelay = audioCtx.createDelay();
+          srDelay.delayTime.value = 0.022; // 22ms for spatial widening
+          const srFilter = audioCtx.createBiquadFilter();
+          srFilter.type = 'lowpass';
+          srFilter.frequency.value = 6500;
+
+          diffGainR.connect(srDelay);
+          invL.connect(srDelay);
+          srDelay.connect(srFilter);
+          srFilter.connect(channelState.sr.node);
+        } else {
+          // Mono fallback for surrounds
+          splitter.connect(channelState.sl.node, 0);
+          splitter.connect(channelState.sr.node, 0);
+        }
+
+        sourceTypeText.textContent = `Matrix Upmix (${numChannels}ch \u2192 5.1)`;
+      }
+
+      applyGainsToNodes();
+    }
+
+    function playAudio() {
+      if (!audioBuffer) {
+        showToast('Please load or upload an audio file first!');
+        return;
+      }
+
+      initAudioContext();
+      setupAudioGraph();
+
+      const offset = pauseOffset % audioBuffer.duration;
+      sourceNode.start(0, offset);
+      startTime = audioCtx.currentTime - offset;
+      isPlaying = true;
+
+      iconPlay.classList.add('hidden');
+      iconPause.classList.remove('hidden');
+      playBtnText.textContent = 'Pause';
+      scrubber.disabled = false;
+
+      startMetersLoop();
+    }
+
+    function pauseAudio() {
+      if (!isPlaying) return;
+      pauseOffset = audioCtx.currentTime - startTime;
+      if (sourceNode) {
+        try { sourceNode.stop(); } catch (e) {}
+      }
+      isPlaying = false;
+      iconPlay.classList.remove('hidden');
+      iconPause.classList.add('hidden');
+      playBtnText.textContent = 'Play';
+    }
+
+    function stopAudio() {
+      if (sourceNode) {
+        try { sourceNode.stop(); } catch (e) {}
+      }
+      isPlaying = false;
+      pauseOffset = 0;
+      iconPlay.classList.remove('hidden');
+      iconPause.classList.add('hidden');
+      playBtnText.textContent = 'Play';
+      scrubber.value = 0;
+      timeCurrent.textContent = '00:00';
+      if (audioBuffer) {
+        timeRemaining.textContent = '-' + formatTime(audioBuffer.duration);
+      }
+      resetAllMeterVisuals();
+    }
+
+    btnPlayPause.addEventListener('click', () => {
+      if (isPlaying) {
+        pauseAudio();
+      } else {
+        playAudio();
+      }
+    });
+
+    btnStop.addEventListener('click', stopAudio);
+
+    btnLoop.addEventListener('click', () => {
+      loopEnabled = !loopEnabled;
+      if (sourceNode) sourceNode.loop = loopEnabled;
+      loopLabel.textContent = `Loop: ${loopEnabled ? 'On' : 'Off'}`;
+      btnLoop.classList.toggle('text-cyan-400', loopEnabled);
+      btnLoop.classList.toggle('border-cyan-500', loopEnabled);
+      showToast(`Playback looping: ${loopEnabled ? 'Enabled' : 'Disabled'}`);
+    });
+
+    scrubber.addEventListener('input', (e) => {
+      if (!audioBuffer) return;
+      const targetPercent = parseFloat(e.target.value);
+      const targetTime = (targetPercent / 100) * audioBuffer.duration;
+      timeCurrent.textContent = formatTime(targetTime);
+      timeRemaining.textContent = '-' + formatTime(Math.max(0, audioBuffer.duration - targetTime));
+    });
+
+    scrubber.addEventListener('change', (e) => {
+      if (!audioBuffer) return;
+      const targetPercent = parseFloat(e.target.value);
+      pauseOffset = (targetPercent / 100) * audioBuffer.duration;
+      if (isPlaying) {
+        sourceNode.stop();
+        playAudio();
+      }
+    });
+
+    masterVolume.addEventListener('input', (e) => {
+      const val = parseFloat(e.target.value);
+      if (masterGainNode) {
+        masterGainNode.gain.setValueAtTime(val, audioCtx.currentTime);
+      }
+      masterVolText.textContent = val === 0 ? '-inf dB' : `${(20 * Math.log10(val)).toFixed(1)} dB`;
+    });
+
+    function applyGainsToNodes() {
+      const anySolo = CHANNELS.some(c => channelState[c].isSolo);
+
+      CHANNELS.forEach(ch => {
+        const state = channelState[ch];
+        if (!state.node || !audioCtx) return;
+
+        let activeGain = state.gainVal;
+
+        if (anySolo) {
+          // If any channel is soloed, silence all channels that aren't soloed
+          activeGain = state.isSolo ? state.gainVal : 0;
+        } else if (state.isMute) {
+          activeGain = 0;
+        }
+
+        state.node.gain.setTargetAtTime(activeGain, audioCtx.currentTime, 0.02);
+
+        // Update speaker visual on the 5.1 spatial room
+        const spkEl = document.getElementById(`spk-${ch}`);
+        if (spkEl) {
+          if (activeGain > 0) {
+            spkEl.classList.remove('opacity-25', 'grayscale');
+          } else {
+            spkEl.classList.add('opacity-25', 'grayscale');
+          }
+        }
+      });
+    }
+
+    function handleFaderChange(ch, value) {
+      const floatVal = parseFloat(value);
+      channelState[ch].gainVal = floatVal;
+      const dbText = document.getElementById(`fader-db-${ch}`);
+      if (floatVal === 0) {
+        dbText.textContent = '-inf dB';
+      } else {
+        const db = 20 * Math.log10(floatVal);
+        dbText.textContent = `${db > 0 ? '+' : ''}${db.toFixed(1)} dB`;
+      }
+      applyGainsToNodes();
+    }
+
+    function toggleMute(ch) {
+      channelState[ch].isMute = !channelState[ch].isMute;
+      const btn = document.getElementById(`btn-mute-${ch}`);
+      if (channelState[ch].isMute) {
+        btn.classList.add('bg-rose-600', 'text-white', 'border-rose-400');
+        btn.classList.remove('bg-studio-850', 'text-slate-400');
+      } else {
+        btn.classList.remove('bg-rose-600', 'text-white', 'border-rose-400');
+        btn.classList.add('bg-studio-850', 'text-slate-400');
+      }
+      applyGainsToNodes();
+    }
+
+    function toggleSolo(ch) {
+      initAudioContext();
+      channelState[ch].isSolo = !channelState[ch].isSolo;
+      const btn = document.getElementById(`btn-solo-${ch}`);
+      if (channelState[ch].isSolo) {
+        btn.classList.add('bg-amber-500', 'text-black', 'border-amber-300');
+        btn.classList.remove('bg-studio-850', 'text-slate-400');
+      } else {
+        btn.classList.remove('bg-amber-500', 'text-black', 'border-amber-300');
+        btn.classList.add('bg-studio-850', 'text-slate-400');
+      }
+      applyGainsToNodes();
+    }
+
+    function applyPreset(type) {
+      initAudioContext();
+      // Reset all solo flags
+      CHANNELS.forEach(c => {
+        channelState[c].isSolo = false;
+        const sBtn = document.getElementById(`btn-solo-${c}`);
+        sBtn.classList.remove('bg-amber-500', 'text-black', 'border-amber-300');
+        sBtn.classList.add('bg-studio-850', 'text-slate-400');
+      });
+
+      const enableSet = new Set();
+      if (type === 'all') {
+        CHANNELS.forEach(c => enableSet.add(c));
+        showToast('Preset: 5.1 Full Surround');
+      } else if (type === 'stereo') {
+        enableSet.add('l');
+        enableSet.add('r');
+        showToast('Preset: Stereo Front (L + R)');
+      } else if (type === 'center') {
+        enableSet.add('c');
+        showToast('Preset: Dialogue / Vocals (Center)');
+      } else if (type === 'sub') {
+        enableSet.add('lfe');
+        showToast('Preset: Subwoofer LFE Bass Focus');
+      } else if (type === 'surround') {
+        enableSet.add('sl');
+        enableSet.add('sr');
+        showToast('Preset: Ambiance (Surround L + R)');
+      } else if (type === 'front') {
+        enableSet.add('l');
+        enableSet.add('c');
+        enableSet.add('r');
+        showToast('Preset: Front Soundstage (L + C + R)');
+      } else if (type === 'mute_all') {
+        showToast('All Channels Muted');
+      }
+
+      CHANNELS.forEach(c => {
+        channelState[c].isMute = !enableSet.has(c);
+        const mBtn = document.getElementById(`btn-mute-${c}`);
+        if (channelState[c].isMute) {
+          mBtn.classList.add('bg-rose-600', 'text-white', 'border-rose-400');
+          mBtn.classList.remove('bg-studio-850', 'text-slate-400');
+        } else {
+          mBtn.classList.remove('bg-rose-600', 'text-white', 'border-rose-400');
+          mBtn.classList.add('bg-studio-850', 'text-slate-400');
+        }
+      });
+
+      applyGainsToNodes();
+    }
+
+    function resetMixer() {
+      CHANNELS.forEach(ch => {
+        channelState[ch].gainVal = 1.0;
+        channelState[ch].isMute = false;
+        channelState[ch].isSolo = false;
+        
+        const fader = document.getElementById(`fader-${ch}`);
+        fader.value = 1.0;
+        document.getElementById(`fader-db-${ch}`).textContent = '0 dB';
+
+        const sBtn = document.getElementById(`btn-solo-${ch}`);
+        sBtn.classList.remove('bg-amber-500', 'text-black', 'border-amber-300');
+        sBtn.classList.add('bg-studio-850', 'text-slate-400');
+
+        const mBtn = document.getElementById(`btn-mute-${ch}`);
+        mBtn.classList.remove('bg-rose-600', 'text-white', 'border-rose-400');
+        mBtn.classList.add('bg-studio-850', 'text-slate-400');
+      });
+      applyGainsToNodes();
+      showToast('Mixer channels restored to default unity gain');
+    }
+
+    function startMetersLoop() {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+
+      const byteData = new Uint8Array(128);
+
+      function update() {
+        if (!isPlaying || !audioCtx) {
+          return;
+        }
+
+        // 1. Scrubber position update
+        const elapsed = (audioCtx.currentTime - startTime);
+        if (audioBuffer && audioBuffer.duration > 0) {
+          const currentSec = elapsed % audioBuffer.duration;
+          const pct = (currentSec / audioBuffer.duration) * 100;
+          scrubber.value = pct;
+          timeCurrent.textContent = formatTime(currentSec);
+          timeRemaining.textContent = '-' + formatTime(Math.max(0, audioBuffer.duration - currentSec));
+        }
+
+        // 2. Master meter update
+        if (masterAnalyser) {
+          masterAnalyser.getByteFrequencyData(byteData);
+          let sum = 0;
+          for (let i = 0; i < 32; i++) sum += byteData[i];
+          const avg = sum / 32;
+          const pct = Math.min(100, (avg / 255) * 120);
+          masterMeterBar.style.width = `${pct}%`;
+        }
+
+        // 3. Render 6 individual channel strips
+        CHANNELS.forEach(ch => {
+          const canvas = document.getElementById(`meter-${ch}`);
+          const ctx = canvas.getContext('2d');
+          const state = channelState[ch];
+
+          const w = canvas.width;
+          const h = canvas.height;
+          ctx.clearRect(0, 0, w, h);
+
+          // Background meter track lines
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, 0, w, h);
+
+          if (!state.analyser) return;
+
+          state.analyser.getByteFrequencyData(byteData);
+
+          // Compute RMS / peak level
+          let peak = 0;
+          for (let i = 0; i < byteData.length; i++) {
+            if (byteData[i] > peak) peak = byteData[i];
+          }
+
+          const fillRatio = peak / 255;
+          const activeH = fillRatio * h;
+
+          // Segmented LED meter look
+          const segments = 24;
+          const segH = (h / segments) - 2;
+
+          for (let s = 0; s < segments; s++) {
+            const segY = h - (s + 1) * (segH + 2);
+            const isLit = (s / segments) <= fillRatio;
+
+            if (isLit) {
+              // Color grading from green to yellow to red
+              if (s > segments * 0.85) {
+                ctx.fillStyle = '#f43f5e'; // Red
+              } else if (s > segments * 0.65) {
+                ctx.fillStyle = '#eab308'; // Amber
+              } else {
+                ctx.fillStyle = '#10b981'; // Emerald
+              }
+              ctx.shadowColor = ctx.fillStyle;
+              ctx.shadowBlur = 4;
+            } else {
+              ctx.fillStyle = '#1e293b';
+              ctx.shadowBlur = 0;
+            }
+            ctx.fillRect(4, segY, w - 8, segH);
+          }
+
+          // Subtle pulse on room visualizer speaker
+          const spkEl = document.getElementById(`spk-${ch}`);
+          if (spkEl && fillRatio > 0.05) {
+            const scale = 1 + (fillRatio * 0.15);
+            spkEl.style.transform = `scale(${scale})`;
+          } else if (spkEl) {
+            spkEl.style.transform = 'scale(1)';
+          }
+        });
+
+        animFrameId = requestAnimationFrame(update);
+      }
+
+      animFrameId = requestAnimationFrame(update);
+    }
+
+    function resetAllMeterVisuals() {
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      masterMeterBar.style.width = '0%';
+      CHANNELS.forEach(ch => {
+        const canvas = document.getElementById(`meter-${ch}`);
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const spk = document.getElementById(`spk-${ch}`);
+        if (spk) spk.style.transform = 'scale(1)';
+      });
+    }
+
+    dropZone.addEventListener('click', () => audioFileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-cyan-400', 'bg-cyan-950/20');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-cyan-400', 'bg-cyan-950/20');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-cyan-400', 'bg-cyan-950/20');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFileSelection(e.dataTransfer.files[0]);
+      }
+    });
+
+    audioFileInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        handleFileSelection(e.target.files[0]);
+      }
+    });
+
+    function handleFileSelection(file) {
+      if (!file.type.includes('audio') && !file.name.match(/\.(mp3|wav|ogg|flac|m4a|aac)$/i)) {
+        showToast('Please select a valid audio file format.');
+        return;
+      }
+
+      initAudioContext();
+      stopAudio();
+
+      showToast(`Loading: ${file.name}...`);
+      document.getElementById('metaFileName').textContent = file.name;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const arrayBuffer = event.target.result;
+        audioCtx.decodeAudioData(arrayBuffer, (decodedBuffer) => {
+          audioBuffer = decodedBuffer;
+          document.getElementById('metaChannels').textContent = `${audioBuffer.numberOfChannels} Channels`;
+          document.getElementById('metaSampleRate').textContent = `${audioBuffer.sampleRate} Hz`;
+          document.getElementById('metaDuration').textContent = formatTime(audioBuffer.duration);
+          timeRemaining.textContent = '-' + formatTime(audioBuffer.duration);
+          scrubber.disabled = false;
+          showToast(`Decoded ${audioBuffer.numberOfChannels}-channel audio successfully!`);
+          playAudio();
+        }, (err) => {
+          showToast('Error decoding audio data. Please try another file.');
+          console.error(err);
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    btnDemoTrack.addEventListener('click', () => {
+      initAudioContext();
+      stopAudio();
+      showToast('Synthesizing 6-Channel 5.1 Surround Demo Tone Track...');
+
+      const sampleRate = audioCtx.sampleRate;
+      const duration = 12.0; // 12-second comprehensive multichannel surround test
+      const frameCount = sampleRate * duration;
+      const channels = 6; // L, R, C, LFE, SL, SR
+
+      const demoBuffer = audioCtx.createBuffer(channels, frameCount, sampleRate);
+
+      // Programmed 5.1 Showcase sequence:
+      // Sec 0-2: Front Left (440Hz A4)
+      // Sec 2-4: Front Right (554Hz C#5)
+      // Sec 4-6: Center (659Hz E5 vocal chord)
+      // Sec 6-8: Subwoofer (50Hz sub bass sine sweep)
+      // Sec 8-10: Surround Left (Pink noise atmospheric shimmer)
+      // Sec 10-12: Surround Right (Pink noise shimmer + chord)
+      for (let ch = 0; ch < channels; ch++) {
+        const data = demoBuffer.getChannelData(ch);
+        const startTimeSec = ch * 2.0;
+        const endTimeSec = startTimeSec + 2.0;
+
+        for (let i = 0; i < frameCount; i++) {
+          const t = i / sampleRate;
+          if (t >= startTimeSec && t < endTimeSec) {
+            const relT = t - startTimeSec;
+            // Envelope to prevent clicks
+            const env = Math.sin((relT / 2.0) * Math.PI);
+
+            if (ch === 0) {
+              // Left: 440 Hz tone
+              data[i] = Math.sin(2 * Math.PI * 440 * t) * 0.6 * env;
+            } else if (ch === 1) {
+              // Right: 554.37 Hz tone
+              data[i] = Math.sin(2 * Math.PI * 554.37 * t) * 0.6 * env;
+            } else if (ch === 2) {
+              // Center: Vocal range speech harmonic tone (660 Hz + 1320 Hz)
+              data[i] = (Math.sin(2 * Math.PI * 660 * t) * 0.5 + Math.sin(2 * Math.PI * 1320 * t) * 0.25) * env;
+            } else if (ch === 3) {
+              // LFE / Subwoofer: 45Hz deep rumble with 90Hz second harmonic
+              data[i] = (Math.sin(2 * Math.PI * 45 * t) * 0.8 + Math.sin(2 * Math.PI * 90 * t) * 0.3) * env;
+            } else if (ch === 4) {
+              // Surround Left: Atmospheric filtered tone (330Hz modulated)
+              data[i] = Math.sin(2 * Math.PI * 330 * t) * Math.sin(2 * Math.PI * 4 * t) * 0.5 * env;
+            } else if (ch === 5) {
+              // Surround Right: Atmospheric filtered tone (392Hz modulated)
+              data[i] = Math.sin(2 * Math.PI * 392 * t) * Math.sin(2 * Math.PI * 4 * t) * 0.5 * env;
+            }
+          } else {
+            // Subtle rhythmic backdrop in all channels so listener hears separation against reference
+            data[i] = Math.sin(2 * Math.PI * 110 * t) * 0.03;
+          }
+        }
+      }
+
+      audioBuffer = demoBuffer;
+      document.getElementById('metaFileName').textContent = 'Demo_5.1_Surround_ID_Sequence.wav';
+      document.getElementById('metaChannels').textContent = '6 Discrete Channels';
+      document.getElementById('metaSampleRate').textContent = `${sampleRate} Hz`;
+      document.getElementById('metaDuration').textContent = formatTime(duration);
+      timeRemaining.textContent = '-' + formatTime(duration);
+      scrubber.disabled = false;
+
+      showToast('Loaded 5.1 Multichannel Test Track. Playing...');
+      playAudio();
+    });
+
+    function formatTime(seconds) {
+      if (isNaN(seconds) || seconds < 0) return '00:00';
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    let toastTimer = null;
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      toastMsg.textContent = message;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 3000);
+    }
+
+    // Initialize layout on DOM load
+    window.addEventListener('DOMContentLoaded', () => {
+      resetAllMeterVisuals();
+    });
+  </script>
+</body>
+</html>
